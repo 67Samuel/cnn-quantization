@@ -60,9 +60,9 @@ parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet18',
                         ' (default: resnet18)')
 parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
-parser.add_argument('-b', '--batch-size', default=256, type=int,
+parser.add_argument('-b', '--batch_size', default=256, type=int,
                     metavar='N', help='mini-batch size (default: 256)')
-parser.add_argument('--print-freq', '-p', default=10, type=int,
+parser.add_argument('--print_freq', '-p', default=10, type=int,
                     metavar='N', help='print frequency (default: 10)')
 parser.add_argument('--seed', default=None, type=int,
                     help='seed for initializing training. ')
@@ -110,8 +110,15 @@ parser.add_argument('--var_corr_weight', '-vcw', action='store_true', help='Vari
 parser.add_argument('--measure_entropy', '-me', action='store_true', help='Measure entropy of activations', default=False)
 parser.add_argument('--mlf_experiment', '-mlexp', help='Name of experiment', default=None)
 parser.add_argument('--mid_thread_quant', '-mtq', action='store_true', help='Do mid thread quantization instead of gemmlowp. Available only with bin allocation.', default=False)
-parser.add_argument('--load_model', default=None, type=str, help='path to torch saved model')
-parser.add_argument('--num_classes', default=None, type=int, help='number of classes for model if not standard number (default: None)')
+parser.add_argument('--load_model', '-lm', default=None, type=str, help='path to torch saved model')
+parser.add_argument('--num_classes', '-nc', default=None, type=int, help='number of classes for model if not standard number (default: None)')
+parser.add_argument('--save_path', '-sp', default='./saved_models', type=str, help='save path for quantized models')
+parser.add_argument('--save_name', '-sn', default='/quantized_model', type=str, help='save name for quantized models')
+
+parser.add_argument('--wandb', '-wb', action='store_true', help='Use wandb logging', default=False)
+parser.add_argument('--project', default='cnn-quantization', type=str, help='name of wandb project')
+parser.add_argument('--run_name', default='test', type=str, help='name of the run, recorded in wandb (default: test)')  
+
 args = parser.parse_args()
 
 if args.arch == 'resnet50':
@@ -130,11 +137,7 @@ elif args.arch == 'inception_v3':
 torch.manual_seed(12345)
 
 if args.wandb:
-    hparams = {'batch_size':args.b,
-           'epochs':args.epochs,
-           'init_lr':args.init_lr,
-           'snip_factor':args.snip_factor,
-           'weight_decay_rate':args.weight_decay_rate}
+    hparams = {'batch_size':args.batch_size}
     wandb.init(entity="67Samuel", project=args.project, name=args.run_name, config=hparams)
 
 class InferenceModel:
@@ -181,9 +184,14 @@ class InferenceModel:
         else:
             self.model = models.__dict__[args.arch](pretrained=True)
         if args.load_model != None:
-            model_path = os.path.normpath(args.load_model)
-            self.model.load_state_dict(torch.load(model_path, map_location='cpu'))
-            self.model.to(args.device)
+            try:
+                model_path = os.path.normpath(args.load_model)
+                self.model.load_state_dict(torch.load(model_path, map_location='cpu'))
+                self.model.to(args.device)
+            except Exception as e:
+                print('error loading model')
+                print(e)
+                return
 
         set_node_names(self.model)
 
@@ -208,6 +216,10 @@ class InferenceModel:
 
         self.model.to(args.device)
         QM().quantize_model(self.model)
+        
+        # Save quantized model
+        save_path_with_name = os.path.join(args.save_path, args.save_name)
+        torch.save(self.model.state_dict(),save_path_with_name)
 
         if args.device_ids and len(args.device_ids) > 1 and args.arch != 'shufflenet' and args.arch != 'mobilenetv2':
             if args.arch.startswith('alexnet') or args.arch.startswith('vgg'):
@@ -287,7 +299,7 @@ class InferenceModel:
                 self.ml_logger.mlflow.log_metric('top1', val_prec1)
                 self.ml_logger.mlflow.log_metric('top5', val_prec5)
                 self.ml_logger.mlflow.log_metric('loss', val_loss)
-            elif args.wandb:
+            if args.wandb:
                 wandb.log({'top1':val_prec1, 'top5':val_prec5, 'loss':val_loss})
 
             return val_loss, val_prec1, val_prec5
