@@ -34,6 +34,7 @@ from utils.dump_manager import DumpManager as DM
 from pathlib import Path
 
 from utils.mllog import MLlogger
+import wandb
 
 
 torch.backends.cudnn.deterministic = True
@@ -50,7 +51,7 @@ model_names.append('mobilenetv2')
 # model_names+=pretrainedmodels.model_names
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
-parser.add_argument('--data', metavar='DIR', default=IMAGENET_FOR_INFERENCE,
+parser.add_argument('--data', metavar='DIR', default=IMAGENET_FOR_INFERENCE, type=str, 
                     help='path to dataset')
 parser.add_argument('--arch', '-a', metavar='ARCH', default='resnet18',
                     choices=model_names,
@@ -109,6 +110,8 @@ parser.add_argument('--var_corr_weight', '-vcw', action='store_true', help='Vari
 parser.add_argument('--measure_entropy', '-me', action='store_true', help='Measure entropy of activations', default=False)
 parser.add_argument('--mlf_experiment', '-mlexp', help='Name of experiment', default=None)
 parser.add_argument('--mid_thread_quant', '-mtq', action='store_true', help='Do mid thread quantization instead of gemmlowp. Available only with bin allocation.', default=False)
+parser.add_argument('--load_model', default=None, type=str, help='path to torch saved model')
+parser.add_argument('--num_classes', default=None, type=int, help='number of classes for model if not standard number (default: None)')
 args = parser.parse_args()
 
 if args.arch == 'resnet50':
@@ -126,6 +129,13 @@ elif args.arch == 'inception_v3':
 
 torch.manual_seed(12345)
 
+if args.wandb:
+    hparams = {'batch_size':args.b,
+           'epochs':args.epochs,
+           'init_lr':args.init_lr,
+           'snip_factor':args.snip_factor,
+           'weight_decay_rate':args.weight_decay_rate}
+    wandb.init(entity="67Samuel", project=args.project, name=args.run_name, config=hparams)
 
 class InferenceModel:
     def __init__(self, ml_logger=None):
@@ -136,7 +146,7 @@ class InferenceModel:
             random.seed(args.seed)
             torch.manual_seed(args.seed)
             cudnn.deterministic = True
-            warnings.warn('You have chosen to seed training. '
+            warnings.warn('You have chosen to use seed training. '
                           'This will turn on the CUDNN deterministic setting, '
                           'which can slow down your training considerably! '
                           'You may see unexpected behavior when restarting '
@@ -166,8 +176,14 @@ class InferenceModel:
         #     self.model.load_state_dict(params)
         # elif args.arch not in models.__dict__ and args.arch in pretrainedmodels.model_names:
         #     self.model = pretrainedmodels.__dict__[args.arch](num_classes=1000, pretrained='imagenet')
+        elif args.num_classes != None:
+            self.model = models.__dict__[args.arch](num_classes=args.num_classes, pretrained=True)
         else:
             self.model = models.__dict__[args.arch](pretrained=True)
+        if args.load_model != None:
+            model_path = os.path.normpath(args.load_model)
+            self.model.load_state_dict(torch.load(model_path, map_location='cpu'))
+            self.model.to(args.device)
 
         set_node_names(self.model)
 
@@ -271,6 +287,8 @@ class InferenceModel:
                 self.ml_logger.mlflow.log_metric('top1', val_prec1)
                 self.ml_logger.mlflow.log_metric('top5', val_prec5)
                 self.ml_logger.mlflow.log_metric('loss', val_loss)
+            elif args.wandb:
+                wandb.log({'top1':val_prec1, 'top5':val_prec5, 'loss':val_loss})
 
             return val_loss, val_prec1, val_prec5
 
