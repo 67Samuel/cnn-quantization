@@ -402,18 +402,18 @@ def get_params(logger=None):
 
 
 if __name__ == '__main__':
-    if args.stats_mode != 'collect':
-        experiment = args.arch if args.mlf_experiment is None else args.mlf_experiment
-        with MLlogger(os.path.join(home, 'mlruns_mxt'), experiment, args,
-                      name_args=[args.arch, "W{}A{}".format(args.qweight, args.qtype)]) as ml_logger:
-            with QM(args, get_params(ml_logger)):
-                im = InferenceModel(ml_logger)
-                im.run()
+    #if args.stats_mode != 'collect':
+    #    experiment = args.arch if args.mlf_experiment is None else args.mlf_experiment
+    #    with MLlogger(os.path.join(home, 'mlruns_mxt'), experiment, args,
+    #                  name_args=[args.arch, "W{}A{}".format(args.qweight, args.qtype)]) as ml_logger:
+    #        with QM(args, get_params(ml_logger)):
+    #            im = InferenceModel(ml_logger)
+    #            im.run()
 
-            if args.measure_entropy:
-                for id in ml_logger.metters:
-                    print("Average bit rate: {} - {}".format(id, ml_logger.metters[id].avg))
-    else:
-        with QM(args, get_params()):
-            im = InferenceModel()
-            im.run()
+     #       if args.measure_entropy:
+     #           for id in ml_logger.metters:
+     #               print("Average bit rate: {} - {}".format(id, ml_logger.metters[id].avg))
+    #else:
+    with QM(args, get_params()):
+        im = InferenceModel()
+        im.run()
